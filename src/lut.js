@@ -73,10 +73,10 @@ function replaceUmlauts(str) {
     );
 }
 
-const getUniqueKeyFromFreeText = (text, path = '') => {
+const getUniqueKeyFromFreeText = (text, path = ['']) => {
   LutManager.incrementGetUniqueKeyFromFreeTextNumCalls();
   const sanitized = replaceUmlauts(text);
-  let maybeDuplicateKey = [path, sanitized
+  let maybeDuplicateKey = [...path, sanitized
     .toLowerCase()
     .slice(0, maxLength)
     .replace(/[^a-zA-Z]+/g, ' ')

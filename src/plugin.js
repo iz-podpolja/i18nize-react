@@ -10,23 +10,50 @@ const {
   isJSXAttributeAllowed,
 } = require('./plugin-helpers');
 
-const handleStringLiteral = (path, table, key) => {
+const handleStringLiteral = (path, table, key, topLevel) => {
   const { value } = path.node;
   if (!table[key]) table[key] = {};
   if (!table[key].pairs) table[key].pairs = [];
-  table[key].pairs.push({ path, value });
+  table[key].pairs.push({ path, value, topLevel });
 };
 
-const extractValueAndUpdateTable = (t, table, path, key) => {
+const extractValueAndUpdateTable = (t, table, path, key, topLevel) => {
   if (t.isStringLiteral(path.node)) {
-    handleStringLiteral(path, table, key);
+    handleStringLiteral(path, table, key, topLevel);
   } else if (t.isArrayExpression(path.node)) {
     path.get('elements').forEach((element) => {
       if (t.isStringLiteral(element.node)) {
-        handleStringLiteral(element, table, key);
+        handleStringLiteral(element, table, key, topLevel);
       }
     });
   }
+};
+
+const isParentNodeExportDeclaration = node => node.parent.type === 'ExportDeclaration' || node.parent.type === 'ExportNamedDeclaration' || node.parent.type === 'ExportDefaultDeclaration';
+
+
+const handleFunction = (me, path) => {
+  // console.log(path.parent && path.parent.type);
+  if (isParentNodeExportDeclaration(path)) {
+    me.path = path.parent.declaration.id.name;
+    // console.log('one', me.path);
+    return;
+  }
+  const assignment = path.findParent(p => p.isVariableDeclaration());
+  if (assignment) {
+    if (!assignment.parent || isParentNodeExportDeclaration(assignment) || assignment.parent.type === 'Program') {
+      me.path = assignment.node.declarations[0].id.name;
+      // console.log('two', me.path);
+    }
+  }
+  // assignment = path.findParent(p => p.isVariableDeclarator());
+  // if (assignment) {
+  //   if (assignment.node.id.name === 'SignUpForm') { console.log(JSON.stringify(assignment.parent)); }
+  //   if (!assignment.parent || isParentNodeExportDeclaration(assignment)) {
+  //     me.path = assignment.node.id.name;
+  //     console.log('three', me.path);
+  //   }
+  // }
 };
 
 module.exports = ({ types: t }) => ({
@@ -34,6 +61,7 @@ module.exports = ({ types: t }) => ({
   visitor: {
     Program: {
       enter() {
+        this.path = '';
         this.state = {};
         this.alreadyImportedK = false;
         this.alreadyImportedi18n = false;
@@ -42,9 +70,9 @@ module.exports = ({ types: t }) => ({
       exit(programPath) {
         Object.keys(this.state).forEach((key) => {
           if (this.state[key].valid && this.state[key].pairs) {
-            this.state[key].pairs.forEach(({ path, value }) => {
+            this.state[key].pairs.forEach(({ path, value, topLevel }) => {
               // TODO: OPTIMIZATION: Use quasi quotes to optimize this
-              const kValue = getUniqueKeyFromFreeText(value);
+              const kValue = getUniqueKeyFromFreeText(value, topLevel);
               path.replaceWithSourceString(`i18n.t(Keys.${kValue})`);
             });
           }
@@ -83,6 +111,21 @@ module.exports = ({ types: t }) => ({
         }
       },
     },
+    FunctionDeclaration: {
+      enter(path) {
+        handleFunction(this, path);
+      },
+    },
+    FunctionExpression: {
+      enter(path) {
+        handleFunction(this, path);
+      },
+    },
+    ArrowFunctionExpression: {
+      enter(path) {
+        handleFunction(this, path);
+      },
+    },
     TemplateLiteral: {
       enter(path) {
         // Only extract the value of identifiers
@@ -108,7 +151,7 @@ module.exports = ({ types: t }) => ({
           const coreValue = templateElement.value.raw.trim();
           if (coreValue.length) {
             const qPath = path.get('quasis')[index];
-            const kValue = getUniqueKeyFromFreeText(coreValue);
+            const kValue = getUniqueKeyFromFreeText(coreValue, this.path);
             // TODO: OPTIMIZATION: Use quasi quotes to optimize this
             // TODO: Replace the path instead of modifying the raw
             qPath.node.value.raw = qPath.node.value.raw.replace(
@@ -132,7 +175,7 @@ module.exports = ({ types: t }) => ({
           _.get(path, 'node.left.property.name'),
         );
         if (!key) return;
-        extractValueAndUpdateTable(t, this.state, path.get('right'), key);
+        extractValueAndUpdateTable(t, this.state, path.get('right'), key, this.path);
       },
     },
     ObjectProperty: {
@@ -143,7 +186,7 @@ module.exports = ({ types: t }) => ({
         // Check for blacklist
         if (isBlacklistedForJsxAttribute(path)) return;
 
-        extractValueAndUpdateTable(t, this.state, path.get('value'), key);
+        extractValueAndUpdateTable(t, this.state, path.get('value'), key, this.path);
       },
     },
     VariableDeclarator: {
@@ -155,14 +198,14 @@ module.exports = ({ types: t }) => ({
         // Check for blacklist
         if (isBlacklistedForJsxAttribute(path)) return;
 
-        extractValueAndUpdateTable(t, this.state, path.get('init'), key);
+        extractValueAndUpdateTable(t, this.state, path.get('init'), key, this.path);
       },
     },
     JSXText: {
       enter(path) {
         const coreValue = _.get(path, 'node.value', '').trim();
         if (!coreValue.length) return;
-        const kValue = getUniqueKeyFromFreeText(coreValue);
+        const kValue = getUniqueKeyFromFreeText(coreValue, this.path);
         // TODO: OPTIMIZATION: Use quasi quotes to optimize this
         path.node.value = path.node.value.replace(
           coreValue,
@@ -178,7 +221,7 @@ module.exports = ({ types: t }) => ({
         if (!coreValue || coreValue.type !== 'StringLiteral') return;
         const value = coreValue.value.trim();
         if (!value.length) return;
-        const kValue = getUniqueKeyFromFreeText(value);
+        const kValue = getUniqueKeyFromFreeText(value, this.path);
         // TODO: OPTIMIZATION: Use quasi quotes to optimize this
         path.node.value = t.JSXExpressionContainer(t.callExpression(t.Identifier('i18n.t'), [
           t.identifier(`Keys.${kValue}`),

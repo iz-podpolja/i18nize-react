@@ -35,14 +35,15 @@ const isJSXAttributeAllowed = (path) => {
   return allowedJSXAttributes.includes(name);
 };
 
+
 const handleConditionalExpressions = (path, t) => {
   // For ternary operators
   // if (!path.findParent(p => p.isConditionalExpression())) return;
 
   // Only extract the value of identifiers
   // who are children of some JSX element
-
-  if (!path.findParent(p => p.isJSXElement())) return;
+  const jsx = path.findParent(p => p.isJSXElement());
+  if (!jsx) return;
   // console.log(path.parent && path.parent.name && path.parent.name.name);
   // Check for blacklist
   if (isBlacklistedForJsxAttribute(path)) return;
@@ -56,12 +57,12 @@ const handleConditionalExpressions = (path, t) => {
   if (babel.types.isJSXAttribute(path.parent)) {
     if (isJSXAttributeAllowed(path.parent)) {
       // srcString = `{${srcString}}`;
-      console.log('parent is JSX attribute', path.parent.name.name, srcString);
+      // console.log('parent is JSX attribute', path.parent.name.name, srcString);
       path.replaceWith(t.JSXExpressionContainer(t.stringLiteral(srcString)));
       // path.skip();
     }
   } else {
-    console.log(srcString);
+    // console.log(srcString);
     path.replaceWithSourceString(srcString);
   }
 };
