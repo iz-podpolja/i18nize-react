@@ -1,18 +1,13 @@
 const _ = require('lodash');
 
-const {
-  i18nextImportStatement,
-  kImportStatement,
-} = require('./frozen-asts');
+const { i18nextImportStatement, kImportStatement } = require('./frozen-asts');
 
-const {
-  getUniqueKeyFromFreeText,
-  LutManager,
-} = require('./lut');
+const { getUniqueKeyFromFreeText, LutManager } = require('./lut');
 
 const {
   isBlacklistedForJsxAttribute,
   handleConditionalExpressions,
+  isJSXAttributeAllowed,
 } = require('./plugin-helpers');
 
 const handleStringLiteral = (path, table, key) => {
@@ -27,7 +22,9 @@ const extractValueAndUpdateTable = (t, table, path, key) => {
     handleStringLiteral(path, table, key);
   } else if (t.isArrayExpression(path.node)) {
     path.get('elements').forEach((element) => {
-      if (t.isStringLiteral(element.node)) handleStringLiteral(element, table, key);
+      if (t.isStringLiteral(element.node)) {
+        handleStringLiteral(element, table, key);
+      }
     });
   }
 };
@@ -48,17 +45,18 @@ module.exports = ({ types: t }) => ({
             this.state[key].pairs.forEach(({ path, value }) => {
               // TODO: OPTIMIZATION: Use quasi quotes to optimize this
               const kValue = getUniqueKeyFromFreeText(value);
-              path.replaceWithSourceString(`i18n.t(k.${kValue})`);
+              path.replaceWithSourceString(`i18n.t(Keys.${kValue})`);
             });
           }
         });
         // Do not add imports if there is no replaceable text
         // in this file
         if (LutManager.getUniqueKeyFromFreeTextNumCalls > 0) {
-          if (!this.alreadyImportedK) programPath.node.body.unshift(_.cloneDeep(kImportStatement));
+          if (!this.alreadyImportedK) {
+            programPath.node.body.unshift(_.cloneDeep(kImportStatement));
+          }
           if (!this.alreadyImportedi18n) {
-            programPath.node.body
-              .unshift(_.cloneDeep(i18nextImportStatement));
+            programPath.node.body.unshift(_.cloneDeep(i18nextImportStatement));
           }
         }
       },
@@ -79,7 +77,9 @@ module.exports = ({ types: t }) => ({
         // Only extract the value of identifiers
         // who are children of some JSX element
         if (path.findParent(p => p.isJSXElement())) {
-          this.state[path.node.name] = _.merge(this.state[path.node.name], { valid: true });
+          this.state[path.node.name] = _.merge(this.state[path.node.name], {
+            valid: true,
+          });
         }
       },
     },
@@ -91,7 +91,11 @@ module.exports = ({ types: t }) => ({
         if (!firstJsxParent) return;
 
         // Ignore CSS strings
-        if (_.get(firstJsxParent, 'node.openingElement.name.name') === 'style') return;
+        if (
+          _.get(firstJsxParent, 'node.openingElement.name.name') === 'style'
+        ) {
+          return;
+        }
 
         if (isBlacklistedForJsxAttribute(path)) return;
 
@@ -107,8 +111,14 @@ module.exports = ({ types: t }) => ({
             const kValue = getUniqueKeyFromFreeText(coreValue);
             // TODO: OPTIMIZATION: Use quasi quotes to optimize this
             // TODO: Replace the path instead of modifying the raw
-            qPath.node.value.raw = qPath.node.value.raw.replace(coreValue, `\${i18n.t(k.${kValue})}`);
-            qPath.node.value.cooked = qPath.node.value.cooked.replace(coreValue, `\${i18n.t(k.${kValue})}`);
+            qPath.node.value.raw = qPath.node.value.raw.replace(
+              coreValue,
+              `\${i18n.t(Keys.${kValue})}`,
+            );
+            qPath.node.value.cooked = qPath.node.value.cooked.replace(
+              coreValue,
+              `\${i18n.t(Keys.${kValue})}`,
+            );
           }
         });
       },
@@ -116,7 +126,11 @@ module.exports = ({ types: t }) => ({
     AssignmentExpression: {
       enter(path) {
         // TODO: Explore the reason behind crash
-        const key = _.get(path, 'node.left.name', _.get(path, 'node.left.property.name'));
+        const key = _.get(
+          path,
+          'node.left.name',
+          _.get(path, 'node.left.property.name'),
+        );
         if (!key) return;
         extractValueAndUpdateTable(t, this.state, path.get('right'), key);
       },
@@ -150,7 +164,25 @@ module.exports = ({ types: t }) => ({
         if (!coreValue.length) return;
         const kValue = getUniqueKeyFromFreeText(coreValue);
         // TODO: OPTIMIZATION: Use quasi quotes to optimize this
-        path.node.value = path.node.value.replace(coreValue, `{i18n.t(k.${kValue})}`);
+        path.node.value = path.node.value.replace(
+          coreValue,
+          `{i18n.t(Keys.${kValue})}`,
+        );
+      },
+    },
+    JSXAttribute: {
+      enter(path) {
+        if (!isJSXAttributeAllowed(path)) return;
+        const coreValue = _.get(path, 'node.value', {});
+
+        if (!coreValue || coreValue.type !== 'StringLiteral') return;
+        const value = coreValue.value.trim();
+        if (!value.length) return;
+        const kValue = getUniqueKeyFromFreeText(value);
+        // TODO: OPTIMIZATION: Use quasi quotes to optimize this
+        path.node.value = t.JSXExpressionContainer(t.callExpression(t.Identifier('i18n.t'), [
+          t.identifier(`Keys.${kValue}`),
+        ]));
       },
     },
     StringLiteral: {

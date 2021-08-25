@@ -1,7 +1,9 @@
 const parserPlugins = [
   'jsx',
+  'typescript',
   'classProperties', // '@babel/plugin-proposal-class-properties',
-  'flow',
+  'optionalChaining',
+  'exportDefaultFrom',
 ];
 
 const generatorOptions = {
