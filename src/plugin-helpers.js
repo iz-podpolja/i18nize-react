@@ -27,6 +27,7 @@ const isBlacklistedForJsxAttribute = (path) => {
   return false;
 };
 
+
 const isJSXAttributeAllowed = (path) => {
   const allowedJSXAttributes = [
     'children', 'content', 'button', 'title', 'alt', 'header', 'footer', 'text',
@@ -36,9 +37,16 @@ const isJSXAttributeAllowed = (path) => {
 };
 
 
-const handleConditionalExpressions = (path, t) => {
+const getElementNames = (element) => {
+  const elementName = _.get(element, 'node.openingElement.name.name');
+  if (elementName) return [elementName];
+
+  return [_.get(element, 'node.openingElement.name.object.name'), _.get(element, 'node.openingElement.name.property.name')];
+};
+
+const handleConditionalExpressions = (path, t, topLevel = []) => {
   // For ternary operators
-  // if (!path.findParent(p => p.isConditionalExpression())) return;
+  if (!path.findParent(p => p.isConditionalExpression())) return;
 
   // Only extract the value of identifiers
   // who are children of some JSX element
@@ -47,10 +55,10 @@ const handleConditionalExpressions = (path, t) => {
   // console.log(path.parent && path.parent.name && path.parent.name.name);
   // Check for blacklist
   if (isBlacklistedForJsxAttribute(path)) return;
-
+  const elementNames = getElementNames(jsx);
   const coreValue = _.get(path, 'node.value', '').trim();
   if (!coreValue.length) return;
-  const kValue = getUniqueKeyFromFreeText(coreValue);
+  const kValue = getUniqueKeyFromFreeText(coreValue, [...topLevel, ...elementNames, 'variant']);
   // TODO: OPTIMIZATION: Use quasi quotes to optimize this
 
   const srcString = `i18n.t(Keys.${kValue})`;
@@ -72,4 +80,5 @@ module.exports = {
   isBlacklistedForJsxAttribute,
   handleConditionalExpressions,
   isJSXAttributeAllowed,
+  getElementNames,
 };

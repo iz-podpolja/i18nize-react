@@ -32,7 +32,7 @@ const transformFile = (fileName) => {
 
     if (!isDry) {
       // Run the plugin
-      traverse(ast, myPlugin(babel).visitor);
+      traverse(ast, myPlugin(babel, fileName).visitor);
 
       // Convert all the ~/i18n/keys to <workplace_dir>/src/i18n/keys
       const state = {
